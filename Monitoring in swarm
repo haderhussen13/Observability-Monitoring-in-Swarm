@@ -1,0 +1,131 @@
+Part 4 – Observability & Monitoring in Docker Swarm 
+
+This document contains the implementation steps, configurations, and required deliverables for Tasks 4.1, 4.2, and 4.3. Please insert your own screenshots where indicated before submission. 
+
+Task 4.1 – Prometheus Stack in Swarm 
+
+1. Prometheus Configuration (prometheus.yml) 
+
+ 
+global: 
+  scrape_interval: 15s 
+ 
+scrape_configs: 
+  - job_name: 'swarm_services' 
+    docker_sd_configs: 
+      - host: unix:///var/run/docker.sock 
+        refresh_interval: 10s 
+    relabel_configs: 
+      - source_labels: [__meta_docker_service_name] 
+        target_label: service 
+ 
+
+ 
+
+2. Node Exporter Deployment (Global Mode) 
+
+ 
+docker service create   --name node_exporter   --mode global   --mount type=bind,source=/proc,target=/host/proc,readonly   --mount type=bind,source=/sys,target=/host/sys,readonly   --mount type=bind,source=/,target=/rootfs:ro   prom/node-exporter 
+ 
+
+ 
+
+3. cAdvisor Deployment (Global Mode) 
+
+ 
+docker service create   --name cadvisor   --mode global   --mount type=bind,source=/,target=/rootfs:ro   --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock   google/cadvisor:latest 
+ 
+
+ 
+
+4. Grafana Deployment 
+
+ 
+docker service create   --name grafana   --publish 3000:3000   grafana/grafana 
+ 
+
+Task 4.2 – Logging with Syslog / Fluentd 
+
+1. Fluentd Deployment (docker-compose.yml example) 
+
+ 
+version: '3.8' 
+services: 
+  fluentd: 
+    image: fluent/fluentd:v1.16-1 
+    ports: 
+      - "24224:24224" 
+      - "24224:24224/udp" 
+    volumes: 
+      - ./fluentd/conf:/fluentd/etc 
+    deploy: 
+      mode: global 
+ 
+
+ 
+
+2. Configure Services to Use Fluentd Logging Driver 
+
+ 
+logging: 
+  driver: "fluentd" 
+  options: 
+    fluentd-address: localhost:24224 
+    tag: docker.{{.Name}} 
+ 
+
+ 
+
+3. Log Rotation & Retention Configuration 
+
+ 
+<system> 
+  log_file /fluentd/log/fluentd.log 
+  log_rotation 10 
+  log_retention 7d 
+</system> 
+ 
+
+ 
+
+ 
+
+Task 4.3 – Alerting Configuration 
+
+1. Prometheus Alert Rules (alert.rules.yml) 
+
+ 
+groups: 
+  - name: swarm_alerts 
+    rules: 
+      - alert: ServiceDown 
+        expr: docker_service_replicas < 1 
+        for: 5m 
+        labels: 
+          severity: critical 
+ 
+      - alert: HighMemoryUsage 
+        expr: container_memory_usage_bytes / container_spec_memory_limit_bytes > 0.9 
+        for: 5m 
+        labels: 
+          severity: warning 
+ 
+
+ 
+
+2. AlertManager Configuration (alertmanager.yml) 
+
+ 
+global: 
+  resolve_timeout: 5m 
+ 
+route: 
+  group_by: ['alertname'] 
+  receiver: 'email-alerts' 
+ 
+receivers: 
+  - name: 'email-alerts' 
+    email_configs: 
+      - to: 'admin@example.com' 
+        from: 'alertmanager@example.com' 
+        smarthost: 'smtp.example.com:587'
